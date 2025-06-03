@@ -48,6 +48,15 @@ pipeline {
                 echo 'Running unit tests...'
                 script {
                     try {
+                        // Debug: Verificar estructura de archivos
+                        sh 'pwd'
+                        sh 'ls -la'
+                        sh 'ls -la test/ || echo "test/ directory not found"'
+                        sh 'ls -la test/unit/ || echo "test/unit/ directory not found"'
+                        
+                        // Debug: Verificar comando en Makefile
+                        sh 'grep -A 2 "test-unit:" Makefile'
+                        
                         sh 'mkdir -p results'
                         sh 'make test-unit'
                         echo 'Unit tests completed successfully'
