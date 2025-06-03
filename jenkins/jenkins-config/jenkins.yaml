@@ -1,0 +1,39 @@
+# Configuración de Jenkins como Código (JCasC)
+# Este archivo configura Jenkins automáticamente
+
+jenkins:
+  systemMessage: "Jenkins configurado para el Laboratorio UNIR - Pipeline CICD"
+  numExecutors: 2
+  
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin123"
+          
+  authorizationStrategy:
+    globalMatrix:
+      permissions:
+        - "Overall/Administer:admin"
+        - "Overall/Read:authenticated"
+        - "Job/Build:authenticated"
+        - "Job/Configure:authenticated"
+        - "Job/Create:authenticated"
+        - "Job/Delete:authenticated"
+        - "Job/Read:authenticated"
+
+  nodes:
+    - permanent:
+        name: "docker-agent"
+        labelString: "docker docker-agent"
+        launcher:
+          inbound:
+            webSocket: true
+        remoteFS: "/home/jenkins/agent"
+        numExecutors: 2
+
+unclassified:
+  location:
+    url: http://localhost:8080/
+    adminAddress: admin@empresa.com

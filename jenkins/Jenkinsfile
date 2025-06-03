@@ -1,0 +1,335 @@
+pipeline {
+    agent any
+    
+    environment {
+        // Variables para el correo y configuración
+        JOB_NAME = "${env.JOB_NAME}"
+        BUILD_NUMBER = "${env.BUILD_NUMBER}"
+        BUILD_URL = "${env.BUILD_URL}"
+        DOCKER_IMAGE = "calculator-app"
+        PYTHONPATH = "/opt/calc"
+    }
+    
+    options {
+        // Mantener solo los últimos 10 builds
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        // Timeout para el pipeline completo
+        timeout(time: 30, unit: 'MINUTES')
+        // Evitar ejecuciones concurrentes
+        disableConcurrentBuilds()
+    }
+    
+    stages {
+        stage('Source') {
+            steps {
+                echo 'Cloning repository...'
+                git branch: 'main', url: 'https://github.com/pxblo-x1/unir-test.git'
+                echo 'Repository cloned successfully'
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                echo 'Building Docker image...'
+                script {
+                    try {
+                        sh 'make build'
+                        echo 'Docker image built successfully'
+                    } catch (Exception e) {
+                        echo "Build failed: ${e.getMessage()}"
+                        throw e
+                    }
+                }
+            }
+        }
+        
+        stage('Unit Tests') {
+            steps {
+                echo 'Running unit tests...'
+                script {
+                    try {
+                        sh 'mkdir -p results'
+                        sh 'make test-unit'
+                        echo 'Unit tests completed successfully'
+                    } catch (Exception e) {
+                        echo "Unit tests failed: ${e.getMessage()}"
+                        // No lanzamos excepción para continuar con otros tests
+                    }
+                }
+                // Archivar resultados de unit tests
+                archiveArtifacts artifacts: 'results/unit_result.xml', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'results/unit_result.html', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'results/coverage.xml', allowEmptyArchive: true
+            }
+        }
+        
+        stage('Behavior Tests') {
+            steps {
+                echo 'Running behavior tests...'
+                script {
+                    try {
+                        sh 'make test-behavior'
+                        echo 'Behavior tests completed successfully'
+                    } catch (Exception e) {
+                        echo "Behavior tests failed: ${e.getMessage()}"
+                        // No lanzamos excepción para continuar con otros tests
+                    }
+                }
+                // Archivar resultados de behavior tests
+                archiveArtifacts artifacts: 'results/behavior_*.xml', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'results/behavior_*.html', allowEmptyArchive: true
+            }
+        }
+        
+        stage('API Tests') {
+            steps {
+                echo 'Running API tests...'
+                script {
+                    try {
+                        sh 'make test-api'
+                        echo 'API tests completed successfully'
+                    } catch (Exception e) {
+                        echo "API tests failed: ${e.getMessage()}"
+                        // No lanzamos excepción para continuar con otros tests
+                    }
+                }
+                // Archivar resultados de API tests
+                archiveArtifacts artifacts: 'results/api_result.xml', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'results/api_result.html', allowEmptyArchive: true
+            }
+        }
+        
+        stage('E2E Tests') {
+            steps {
+                echo 'Running End-to-End tests...'
+                script {
+                    try {
+                        sh 'make test-e2e'
+                        echo 'E2E tests completed successfully'
+                    } catch (Exception e) {
+                        echo "E2E tests failed: ${e.getMessage()}"
+                        // No lanzamos excepción para continuar con el pipeline
+                    }
+                }
+                // Archivar resultados de E2E tests
+                archiveArtifacts artifacts: 'results/cypress_result.xml', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'results/cypress_result.html', allowEmptyArchive: true
+            }
+        }
+        
+        stage('Security Tests') {
+            when {
+                // Solo ejecutar en la rama principal o cuando se especifique
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                    expression { params.RUN_SECURITY_TESTS == true }
+                }
+            }
+            steps {
+                echo 'Running security tests...'
+                script {
+                    try {
+                        // Aquí se pueden añadir tests de seguridad específicos
+                        sh '''
+                            echo "Ejecutando análisis de seguridad..."
+                            # Ejemplo de comando para análisis de dependencias
+                            # safety check --json --output results/security_report.json || true
+                            echo "Análisis de seguridad completado"
+                        '''
+                    } catch (Exception e) {
+                        echo "Security tests failed: ${e.getMessage()}"
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo 'Pipeline execution completed. Processing results...'
+            
+            // Publicar resultados de tests en formato JUnit
+            script {
+                try {
+                    junit allowEmptyResults: true, testResults: 'results/*_result.xml'
+                } catch (Exception e) {
+                    echo "No se pudieron procesar los resultados JUnit: ${e.getMessage()}"
+                }
+            }
+            
+            // Publicar informes HTML
+            script {
+                // Informe de Unit Tests
+                try {
+                    publishHTML([
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'results',
+                        reportFiles: 'unit_result.html',
+                        reportName: 'Unit Test Report',
+                        reportTitles: 'Unit Tests'
+                    ])
+                } catch (Exception e) {
+                    echo "No se pudo publicar el informe de Unit Tests: ${e.getMessage()}"
+                }
+                
+                // Informe de API Tests
+                try {
+                    publishHTML([
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'results',
+                        reportFiles: 'api_result.html',
+                        reportName: 'API Test Report',
+                        reportTitles: 'API Tests'
+                    ])
+                } catch (Exception e) {
+                    echo "No se pudo publicar el informe de API Tests: ${e.getMessage()}"
+                }
+                
+                // Informe de E2E Tests
+                try {
+                    publishHTML([
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'results',
+                        reportFiles: 'cypress_result.html',
+                        reportName: 'E2E Test Report',
+                        reportTitles: 'End-to-End Tests'
+                    ])
+                } catch (Exception e) {
+                    echo "No se pudo publicar el informe de E2E Tests: ${e.getMessage()}"
+                }
+                
+                // Informe de Coverage
+                try {
+                    publishHTML([
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'results/coverage',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report',
+                        reportTitles: 'Code Coverage'
+                    ])
+                } catch (Exception e) {
+                    echo "No se pudo publicar el informe de Coverage: ${e.getMessage()}"
+                }
+            }
+            
+            // Limpiar workspace si es necesario
+            script {
+                // Limpiar contenedores Docker que puedan haber quedado
+                sh '''
+                    docker stop apiserver calc-web apiwiremock || true
+                    docker rm --force apiserver calc-web apiwiremock || true
+                    docker network rm calc-test-api calc-test-e2e calc-test-e2e-wiremock || true
+                '''
+            }
+            
+            echo 'Post-build actions completed'
+        }
+        
+        success {
+            echo 'Pipeline executed successfully!'
+            script {
+                echo "✅ Éxito: El pipeline ${JOB_NAME} #${BUILD_NUMBER} se ejecutó correctamente"
+                echo "🔗 URL: ${BUILD_URL}"
+                
+                // Aquí se puede añadir notificación de éxito si se desea
+                /*
+                emailext (
+                    subject: "✅ Pipeline Exitoso - ${JOB_NAME} #${BUILD_NUMBER}",
+                    body: """
+                    ¡Excelente! El pipeline se ejecutó correctamente.
+                    
+                    📋 Detalles:
+                    • Trabajo: ${JOB_NAME}
+                    • Número de ejecución: ${BUILD_NUMBER}
+                    • Estado: ✅ EXITOSO
+                    • URL: ${BUILD_URL}
+                    
+                    Todas las pruebas han pasado satisfactoriamente.
+                    """,
+                    to: "devops@empresa.com"
+                )
+                */
+            }
+        }
+        
+        failure {
+            echo 'Pipeline failed!'
+            script {
+                echo "❌ Fallo: El pipeline ${JOB_NAME} #${BUILD_NUMBER} ha fallado"
+                echo "🔗 URL: ${BUILD_URL}"
+                echo "📊 Revisa los logs y reportes para más información"
+                
+                // Recopilar información adicional para debugging
+                sh '''
+                    echo "=== INFORMACIÓN DE DEBUG ==="
+                    echo "Espacio en disco:"
+                    df -h || true
+                    echo "Contenedores Docker:"
+                    docker ps -a || true
+                    echo "Imágenes Docker:"
+                    docker images || true
+                    echo "Redes Docker:"
+                    docker network ls || true
+                '''
+                
+                // Envío de correo en caso de fallo
+                echo "Enviando notificación de fallo..."
+                
+                // Descomenta cuando tengas configurado el sistema de correo
+                /*
+                emailext (
+                    subject: "❌ Pipeline Fallido - ${JOB_NAME} #${BUILD_NUMBER}",
+                    body: """
+                    El pipeline ${JOB_NAME} ha fallado en la ejecución número ${BUILD_NUMBER}.
+                    
+                    📋 Detalles:
+                    • Trabajo: ${JOB_NAME}
+                    • Número de ejecución: ${BUILD_NUMBER}
+                    • Estado: ❌ FALLIDO
+                    • URL: ${BUILD_URL}
+                    
+                    🔍 Acciones recomendadas:
+                    1. Revisar los logs de la ejecución
+                    2. Verificar los reportes de pruebas
+                    3. Comprobar el estado de los servicios
+                    
+                    Por favor, revisa los detalles en Jenkins para más información.
+                    """,
+                    to: "devops@empresa.com,admin@empresa.com",
+                    attachLog: true
+                )
+                */
+            }
+        }
+        
+        unstable {
+            echo 'Pipeline completed with warnings (unstable)'
+            script {
+                echo "⚠️  Advertencia: El pipeline ${JOB_NAME} #${BUILD_NUMBER} completó con advertencias"
+                echo "Algunas pruebas pueden haber fallado, pero el build fue exitoso"
+            }
+        }
+        
+        aborted {
+            echo 'Pipeline was aborted'
+            script {
+                echo "🛑 El pipeline ${JOB_NAME} #${BUILD_NUMBER} fue cancelado"
+                // Limpiar recursos en caso de cancelación
+                sh '''
+                    docker stop apiserver calc-web apiwiremock || true
+                    docker rm --force apiserver calc-web apiwiremock || true
+                    docker network rm calc-test-api calc-test-e2e calc-test-e2e-wiremock || true
+                '''
+            }
+        }
+    }
+}

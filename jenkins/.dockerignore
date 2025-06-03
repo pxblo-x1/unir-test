@@ -1,0 +1,56 @@
+# Docker Ignore para Jenkins
+# Archivos y directorios que no deben incluirse en contextos Docker
+
+# Archivos temporales
+*.tmp
+*.temp
+*.log
+
+# Archivos de configuración local
+.env.local
+.env.production
+
+# Directorios de datos de Jenkins
+jenkins_home/
+jenkins-data/
+
+# Archivos de backup
+*.backup
+*.bak
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos de Node.js (si aplica)
+node_modules/
+npm-debug.log*
+
+# Archivos de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Archivos de certificados
+*.pem
+*.key
+*.crt
+
+# Archivos de configuración sensibles
+secrets/
+credentials/

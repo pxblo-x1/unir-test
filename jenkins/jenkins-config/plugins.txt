@@ -1,0 +1,26 @@
+# Lista básica de plugins esenciales para el laboratorio
+
+# Plugins básicos de Pipeline
+workflow-aggregator
+pipeline-stage-view
+build-pipeline-plugin
+
+# Plugins de SCM
+git
+github
+
+# Plugins de Testing y Calidad
+junit
+htmlpublisher
+
+# Plugins de Notificaciones
+email-ext
+mailer
+
+# Plugins de Configuración
+configuration-as-code
+
+# Plugins de Utilidades
+timestamper
+ws-cleanup
+build-timeout

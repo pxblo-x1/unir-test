@@ -1,13 +1,15 @@
 # pylint: disable=no-else-return
 def convert_to_number(operand):
     try:
+        if isinstance(operand, (int, float)):
+            return operand
+        if not isinstance(operand, str):
+            raise TypeError("El operando no se puede convertir a número")
         if "." in operand:
             return float(operand)
-        else:
-            return int(operand)
-
-    except ValueError:
-        raise TypeError("Operator cannot be converted to number")
+        return int(operand)
+    except Exception:
+        raise TypeError("El operando no se puede convertir a número")
 
 
 def InvalidConvertToNumber(operand):
@@ -18,7 +20,7 @@ def InvalidConvertToNumber(operand):
         return int(operand)
 
     except ValueError:
-        raise TypeError("Operator cannot be converted to number")
+        raise TypeError("El operando no se puede convertir a número")
 
 
 def validate_permissions(operation, user):

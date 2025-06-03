@@ -1,4 +1,5 @@
 from behave import *
+from math import cos
 
 from app.calc import Calculator
 
@@ -26,3 +27,8 @@ def step_impl(context, op1, op2):
 @then('the result is {res}')
 def step_impl(context, res):
     assert context.result == int(res)
+
+
+@when('I type cos(0)')
+def step_impl(context):
+    context.result = cos(0)

@@ -1,0 +1,52 @@
+# Git Ignore para Jenkins
+# Archivos y directorios que no deben estar en el control de versiones
+
+# Datos locales de Jenkins
+jenkins_home/
+jenkins-data/
+
+# Variables de entorno con datos sensibles
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Archivos temporales
+*.tmp
+*.temp
+*.backup
+*.bak
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Archivos de configuración específicos del usuario
+local-config.yml
+user-config.yml
+
+# Certificados y claves
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+
+# Archivos de jobs específicos del usuario
+user-jobs/
+local-jobs/
+
+# Archivos de workspace temporal
+workspace/
+temp-workspace/
+
+# Archivos de IDE
+.vscode/settings.json
+.idea/
+
+# Archivos de configuración de Docker local
+docker-compose.override.yml
