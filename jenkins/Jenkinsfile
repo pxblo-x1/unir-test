@@ -12,7 +12,7 @@ pipeline {
     
     options {
         // Mantener solo los últimos 10 builds
-        buildDiscarder(logRotator(numToKeepStr: '10'))
+        buildDiscarder(logRotator(numToKeepStr: '3'))
         // Timeout para el pipeline completo
         timeout(time: 30, unit: 'MINUTES')
         // Evitar ejecuciones concurrentes
@@ -45,30 +45,77 @@ pipeline {
         
         stage('Unit Tests') {
             steps {
+                echo 'Creating test file in Jenkins workspace results directory...'
+                sh "mkdir -p ${WORKSPACE}/results"
+                sh "touch ${WORKSPACE}/results/test_from_jenkins_controller.txt"
+                sh "ls -la ${WORKSPACE}/results"
+
+                echo 'Testing basic Docker volume mount write-back...'
+                // Use a simple image like alpine
+                sh "docker run --rm --volume ${WORKSPACE}/results:/data alpine sh -c 'echo \"Hello from Alpine container\" > /data/test_from_alpine.txt && ls -la /data'"
+
+                echo "Checking for test_from_alpine.txt in ${WORKSPACE}/results..."
+                sh "ls -la ${WORKSPACE}/results" 
+                // If test_from_alpine.txt is NOT here, you have a fundamental volume propagation issue.
+
                 echo 'Running unit tests...'
                 script {
                     try {
-                        // Debug: Verificar estructura de archivos
-                        sh 'pwd'
-                        sh 'ls -la'
-                        sh 'ls -la test/ || echo "test/ directory not found"'
-                        sh 'ls -la test/unit/ || echo "test/unit/ directory not found"'
+                        // Crear directorio results en el host
+                        sh 'mkdir -p ${WORKSPACE}/results'
+                        sh 'chmod 777 ${WORKSPACE}/results'
                         
-                        // Debug: Verificar comando en Makefile
-                        sh 'grep -A 2 "test-unit:" Makefile'
-                        
-                        sh 'mkdir -p results'
+                        // Ejecutar tests
                         sh 'make test-unit'
+                        
+                        // Verificar que los archivos existen
+                        sh '''
+                            echo "Verificando archivos generados:"
+                            ls -la ${WORKSPACE}/results/
+                            
+                            if [ -f "${WORKSPACE}/results/unit_result.xml" ]; then
+                                echo "✓ unit_result.xml encontrado"
+                            else
+                                echo "✗ unit_result.xml NO encontrado"
+                            fi
+                            
+                            if [ -f "${WORKSPACE}/results/unit_result.html" ]; then
+                                echo "✓ unit_result.html encontrado"
+                            else
+                                echo "✗ unit_result.html NO encontrado"
+                            fi
+                        '''
+                        
                         echo 'Unit tests completed successfully'
                     } catch (Exception e) {
                         echo "Unit tests failed: ${e.getMessage()}"
                         // No lanzamos excepción para continuar con otros tests
                     }
                 }
+                script {
+                    sh '''
+                        echo "=== DEBUG INFORMACIÓN ==="
+                        echo "Workspace: ${WORKSPACE}"
+                        echo "Contenido del workspace:"
+                        ls -la ${WORKSPACE}/
+                        echo "Contenido del directorio results:"
+                        ls -la ${WORKSPACE}/results/ || echo "Directorio results no existe"
+                        echo "Procesos Docker activos:"
+                        docker ps -a | grep calculator || echo "No hay contenedores calculator"
+                        echo "=========================="
+                    '''
+                }
                 // Archivar resultados de unit tests
-                archiveArtifacts artifacts: 'results/unit_result.xml', allowEmptyArchive: true
-                archiveArtifacts artifacts: 'results/unit_result.html', allowEmptyArchive: true
-                archiveArtifacts artifacts: 'results/coverage.xml', allowEmptyArchive: true
+                script {
+                    try {
+                        sh 'ls -la results/'
+                        archiveArtifacts artifacts: 'results/unit_result.xml', allowEmptyArchive: true
+                        archiveArtifacts artifacts: 'results/unit_result.html', allowEmptyArchive: true
+                        archiveArtifacts artifacts: 'results/coverage.xml', allowEmptyArchive: true
+                    } catch (Exception e) {
+                        echo "Error archiving artifacts: ${e.getMessage()}"
+                    }
+                }
             }
         }
         
