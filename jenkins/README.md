@@ -10,8 +10,9 @@ Implementar un laboratorio completo de Jenkins con Docker que incluya un pipelin
 ### 🛠️ Arquitectura
 - **Jenkins Master** en contenedor Docker con plugins preinstalados
 - **Jenkins Agent** para ejecución distribuida
-- **Pipeline CICD** con 7 etapas: Source, Build, Unit Tests, Behavior Tests, API Tests, E2E Tests, Security Tests
+- **Pipeline CICD** con 6 etapas: Source, Build, Unit Tests, Behavior Tests, API Tests, E2E Tests, Security Tests
 - **Configuración automática** via Jenkins Configuration as Code (JCasC)
+- **Security Tests** incluye análisis con Bandit y Pylint
 
 ### 🚀 Estado Actual
 - ✅ Jenkins servidor funcionando en http://localhost:8080
@@ -20,21 +21,6 @@ Implementar un laboratorio completo de Jenkins con Docker que incluya un pipelin
 - ✅ Plugins instalados y cargados
 - ✅ Usuario admin configurado (admin/admin123)
 
-## 📁 Estructura del Proyecto
-
-```
-jenkins/
-├── docker-compose.yml          # Configuración Docker Compose
-├── Dockerfile                  # Imagen Jenkins personalizada
-├── Jenkinsfile                 # Pipeline CICD completo
-├── setup.sh                   # Script de automatización
-├── verify.sh                  # Script de verificación
-├── .env                       # Variables de entorno
-├── jenkins-config/
-│   ├── jenkins.yaml           # Configuración JCasC (FIXED)
-│   └── plugins.txt           # Lista de plugins
-└── README.md                 # Este archivo
-```
 
 ### 🏃‍♂️ Inicio Rápido
 
@@ -44,156 +30,125 @@ jenkins/
    docker compose up -d
    ```
 
-2. **Verificar estado**:
-   ```bash
-   docker compose ps
-   docker compose logs jenkins
-   ```
-
-3. **Acceder a Jenkins**:
+2. **Acceder a Jenkins**:
    - URL: http://localhost:8080
    - Usuario: `admin`
    - Contraseña: `admin123`
 
-## 🔧 Configuración del Agente (Setup Completo)
-
-### 📋 REPLICACIÓN EXACTA - Pasos para Otro Equipo
-
-**⚠️ IMPORTANTE**: La configuración actual funciona con un secret específico. Para replicar exactamente:
-
-#### **Opción A: Replicación Directa (Recomendada)**
-```bash
-# 1. Clonar el repositorio
-git clone <repository-url>
-cd jenkins/
-
-# 2. Levantar todo el stack directamente
-docker compose up -d
-
-# 3. Esperar inicialización completa (≈60 segundos)
-sleep 60
-
-# 4. Verificar estado
-docker compose ps
-curl -f http://localhost:8080/login
-
-# 5. Acceder a Jenkins
-# URL: http://localhost:8080
-# Usuario: admin
-# Contraseña: admin123
-```
-
-**✅ Esta opción funciona porque el secret actual está incluido en el docker-compose.yml**
-
-#### **Opción B: Configuración Paso a Paso**
-
-1. **Clonar y Preparar el Entorno**:
+3. **Obtener token del agente** (si es necesario):
    ```bash
-   git clone <repository-url>
-   cd jenkins/
-   ```
-
-2. **Primer Inicio (Solo Master)**:
-   ```bash
-   # Comentar temporalmente el servicio jenkins-agent en docker-compose.yml
-   # O iniciar solo el master:
-   docker compose up -d jenkins
-   
-   # Esperar que Jenkins esté completamente iniciado
-   sleep 45
-   
-   # Verificar que Jenkins responde
-   curl -f http://localhost:8080/login || echo "Jenkins aún no está listo"
-   ```
-
-3. **Configurar el Agente Jenkins** (si se desea usar agente distribuido):
-   
-   **Paso 3.1: Obtener el Secret del Agente**
-   ```bash
-   # Usar el script incluido para obtener el secret
    chmod +x get-agent-secret.sh
    ./get-agent-secret.sh
-   
-   # O manualmente:
-   curl -s -u "admin:admin123" "http://localhost:8080/computer/docker-agent/slave-agent.jnlp" | \
-   grep -o '<argument>[^<]*</argument>' | sed -n '1p' | sed 's/<argument>\(.*\)<\/argument>/\1/'
    ```
 
-   **Paso 3.2: Actualizar docker-compose.yml**
+## 🎯 ¿Qué hace este laboratorio?
+
+Este proyecto implementa un **pipeline CI/CD completo** para una aplicación calculadora Python que se ejecuta en contenedores Docker. El pipeline incluye múltiples etapas de testing con reportes y archivado de artefactos.
+
+### 🔄 Etapas del Pipeline
+
+1. **Source**: Clonado del código fuente desde Git
+2. **Build**: Construcción de la imagen Docker de la aplicación
+3. **Unit Tests**: Ejecución de pruebas unitarias con pytest
+4. **Behavior Tests**: Pruebas de comportamiento con Behave (BDD)
+5. **API Tests**: Pruebas de API REST con configuración multi-contenedor
+6. **E2E Tests**: Pruebas end-to-end con Cypress
+7. **Security Tests**: Análisis de seguridad con Bandit y Pylint
+
+### 🏗️ Arquitectura Técnica
+
+- **Jenkins Master**: Contenedor principal con Docker-in-Docker
+- **File Copying Strategy**: Uso de `docker cp` para transferir archivos entre contenedores
+- **Multi-container Testing**: Redes Docker para pruebas que requieren múltiples servicios
+- **Artifact Management**: Archivado automático de reportes y resultados
+- **Error Handling**: Manejo robusto de errores para evitar fallos del pipeline
+
+### 📊 Reportes Generados
+
+- Reportes de pruebas unitarias (JUnit XML)
+- Reportes de pruebas de comportamiento (JSON)
+- Reportes de pruebas API
+- Reportes de pruebas E2E (Cypress)
+- Reportes de seguridad (Bandit, Pylint)
+- Reporte consolidado HTML
+
+## 🔧 Configuración del Agente
+
+Si necesitas configurar un agente Jenkins distribuido:
+
+1. **Obtener el secret del agente**:
    ```bash
-   # Reemplazar el JENKINS_SECRET en docker-compose.yml con el secret obtenido
-   # Actual: JENKINS_SECRET=dedd5d7d59f3812cbff90e7c80cccd52edb713d699bce74572ea47050ebc6546
-   # Nuevo: JENKINS_SECRET=<tu-nuevo-secret>
+   ./get-agent-secret.sh
    ```
 
-   **Paso 3.3: Reiniciar con Agente**
+2. **Actualizar docker-compose.yml** con el nuevo secret si es necesario
+
+3. **Reiniciar el stack**:
    ```bash
-   # Reiniciar todo el stack
    docker compose down
    docker compose up -d
-   
-   # Verificar que el agente se conecta
-   docker compose logs jenkins-agent
    ```
 
-4. **Verificación Final**:
-   ```bash
-   # Verificar estado de nodos
-   curl -s -u "admin:admin123" "http://localhost:8080/computer/api/json" | \
-   python3 -c "import sys,json; data=json.load(sys.stdin); print('\n'.join([f'{c[\"displayName\"]}: {\"ONLINE\" if not c[\"offline\"] else \"OFFLINE\"}' for c in data['computer']]))"
-   ```
+## 🔧 Pipeline CICD
 
-### 🏆 Configuración Actual Funcionando
+El pipeline implementa las siguientes etapas:
 
-**Secret del agente actual**: `dedd5d7d59f3812cbff90e7c80cccd52edb713d699bce74572ea47050ebc6546`
+### 📋 Etapas del Pipeline
 
-**Estado verificado**:
-- ✅ Jenkins Master: http://localhost:8080 (admin/admin123)
-- ✅ Docker Compose: jenkins-server + jenkins-agent
-- ✅ Agente conectado y disponible
-- ✅ Pipeline configurado con `agent any` (funciona en master)
+1. **Source** - Checkout del código fuente
+2. **Build** - Construcción de la imagen Docker de la aplicación calculator
+3. **Unit Tests** - Ejecución de tests unitarios con pytest y generación de coverage
+4. **Behavior Tests** - Tests de comportamiento con behave (BDD)
+5. **API Tests** - Tests de API REST con requests
+6. **E2E Tests** - Tests end-to-end con Cypress
+7. **Security Tests** - Análisis de seguridad con Bandit y Pylint
 
-### ⚠️ Notas Importantes para Replicación
+### 🛡️ Security Tests
 
-1. **El secret del agente cambia**: Cada vez que se reinicia Jenkins, se genera un nuevo secret para el agente.
+La etapa de Security Tests incluye:
+- **Bandit**: Análisis de seguridad estático del código Python
+- **Pylint**: Análisis de calidad de código y detección de problemas de seguridad
+- **Reportes**: Generación de reportes en formato JSON, texto y HTML consolidado
 
-2. **Configuración automática**: Si prefieres simplicidad, usa solo el master con `agent any` en el Jenkinsfile (recomendado para laboratorios).
+### 📊 Reportes y Artefactos
 
-3. **Puertos requeridos**: Asegúrate de que los puertos 8080 y 50000 estén disponibles.
+Cada etapa genera reportes que se archivan automáticamente:
+- Tests unitarios: XML JUnit, coverage HTML/XML
+- Behavior tests: XML JUnit, reportes HTML
+- API tests: XML JUnit, reportes HTML  
+- E2E tests: XML JUnit, videos y screenshots de Cypress
+- Security tests: Reportes JSON/texto de Bandit y Pylint, resumen HTML
 
-4. **Docker socket**: El setup requiere acceso al socket de Docker (`/var/run/docker.sock`).
+### 🐳 Estrategia Docker-in-Docker
 
-### 🔄 Setup Simplificado (Recomendado)
+El pipeline utiliza una estrategia de **copia de archivos** para superar las limitaciones de Docker-in-Docker:
+- Cada etapa crea contenedores temporales
+- Copia el workspace al contenedor usando `docker cp`
+- Ejecuta las pruebas dentro del contenedor
+- Copia los resultados de vuelta al workspace
+- Limpia los contenedores temporales
 
-Para mayor simplicidad y evitar problemas con agentes:
+Esta estrategia es más robusta que el montaje de volúmenes en entornos Docker-in-Docker.
 
-1. **Usar solo el Master**:
-   ```bash
-   # El Jenkinsfile ya está configurado con 'agent any'
-   # Esto ejecuta todo en el contenedor master que tiene Docker CLI
-   ```
+## 📋 Próximos Pasos
 
-2. **Remover agente del docker-compose** (opcional):
-   ```yaml
-   # Comentar o eliminar la sección jenkins-agent en docker-compose.yml
-   # para un setup más simple
-   ```
+Una vez que Jenkins esté ejecutándose, puedes:
 
-### 📋 Próximos Pasos Después del Setup
+1. **Crear el Pipeline Job**:
+   - Ir a Jenkins → New Item → Pipeline
+   - Configurar Git repository URL
+   - Seleccionar "Pipeline script from SCM"
+   - Usar el `Jenkinsfile` incluido en el proyecto
 
-1. **Crear el Job del Pipeline**:
-   - Crear nuevo Pipeline Job
-   - Configurar Git repository
-   - Usar Jenkinsfile del proyecto
+2. **Ejecutar el Pipeline**:
+   - Hacer clic en "Build Now"
+   - Monitorear la ejecución de todas las etapas
+   - Revisar reportes y artefactos generados
 
-2. **Configurar Agent** (opcional):
-   - Agregar nodo agent si es necesario
-   - Configurar etiquetas y ejecutores
-
-3. **Ejecutar Pipeline**:
-   - Trigger manual del pipeline
-   - Verificar ejecución de todas las etapas
-   - Revisar artefactos y reportes
+3. **Personalizar la Configuración** (opcional):
+   - Modificar `jenkins-config/jenkins.yaml` para configuración avanzada
+   - Agregar plugins en `jenkins-config/plugins.txt`
+   - Configurar notificaciones por email o Slack
 
 ## 🔧 Comandos Disponibles
 
@@ -284,144 +239,43 @@ docker images calculator-app
 make build
 ```
 
-### 🚀 Script de Setup Automático
+## 🐛 Solución de Problemas Comunes
 
-Para replicar fácilmente en otro equipo, puedes usar este script:
-
+### Jenkins no responde
 ```bash
-#!/bin/bash
-# setup-complete.sh - Script completo para configurar Jenkins con agente
+# Verificar logs
+docker compose logs jenkins
 
-echo "🔧 Configurando Jenkins Laboratory..."
-
-# 1. Verificar prerequisites
-echo "📋 Verificando prerequisites..."
-command -v docker >/dev/null 2>&1 || { echo "❌ Docker no encontrado. Instalalo primero."; exit 1; }
-command -v docker-compose >/dev/null 2>&1 || command -v docker compose >/dev/null 2>&1 || { echo "❌ Docker Compose no encontrado."; exit 1; }
-
-# 2. Iniciar Jenkins completo (con secret preconfigurado)
-echo "📦 Iniciando Jenkins Laboratory completo..."
-docker compose up -d
-sleep 60  # Esperar que Jenkins esté completamente listo
-
-# 3. Verificar que Jenkins responda
-echo "🔍 Verificando Jenkins..."
-RETRIES=0
-MAX_RETRIES=12
-until curl -f -s http://localhost:8080/login > /dev/null; do
-    echo "   Esperando Jenkins... (intento $((RETRIES+1))/$MAX_RETRIES)"
-    sleep 10
-    RETRIES=$((RETRIES+1))
-    if [ $RETRIES -eq $MAX_RETRIES ]; then
-        echo "❌ Jenkins no responde después de $((MAX_RETRIES*10)) segundos"
-        echo "🔍 Verificando logs..."
-        docker compose logs jenkins | tail -20
-        exit 1
-    fi
-done
-echo "✅ Jenkins está listo"
-
-# 4. Verificar estado de contenedores
-echo "🔍 Verificando estado de contenedores..."
-docker compose ps
-
-# 5. Verificar conexión del agente
-echo "🔍 Verificando conexión del agente..."
-sleep 10
-AGENT_STATUS=$(curl -s -u "admin:admin123" "http://localhost:8080/computer/docker-agent/api/json" 2>/dev/null | grep -o '"offline":[^,]*' | cut -d: -f2)
-
-if [ "$AGENT_STATUS" = "false" ]; then
-    echo "✅ Agente conectado exitosamente"
-elif [ "$AGENT_STATUS" = "true" ]; then
-    echo "⚠️  Agente no conectado, pero Jenkins funciona con master"
-    echo "🔄 Intentando reconectar agente..."
-    docker compose restart jenkins-agent
-    sleep 15
-    AGENT_STATUS_RETRY=$(curl -s -u "admin:admin123" "http://localhost:8080/computer/docker-agent/api/json" 2>/dev/null | grep -o '"offline":[^,]*' | cut -d: -f2)
-    if [ "$AGENT_STATUS_RETRY" = "false" ]; then
-        echo "✅ Agente reconectado exitosamente"
-    else
-        echo "⚠️  Agente no conectado, pero el pipeline puede usar 'agent any' en el master"
-    fi
-else
-    echo "⚠️  No se pudo verificar el agente, pero Jenkins está funcionando"
-fi
-
-echo ""
-echo "🎉 ¡Setup completado!"
-echo "📍 Jenkins URL: http://localhost:8080"
-echo "👤 Usuario: admin"
-echo "🔑 Contraseña: admin123"
-echo ""
-echo "📋 Estado de servicios:"
-docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
-echo ""
-echo "📋 Comandos útiles:"
-echo "   docker compose ps                    # Ver estado de contenedores"
-echo "   docker compose logs jenkins          # Ver logs de Jenkins"
-echo "   docker compose logs jenkins-agent    # Ver logs del agente"
-echo "   docker compose down                  # Detener todo"
-echo "   docker compose restart jenkins-agent # Reiniciar agente si hay problemas"
-echo ""
-echo "🔧 Troubleshooting:"
-echo "   Si el agente no se conecta: docker compose down && docker compose up -d"
-echo "   El pipeline está configurado con 'agent any' y funcionará en el master"
+# Reiniciar si es necesario
+docker compose restart jenkins
 ```
 
-**Uso del script**:
+### Puerto 8080 ocupado
 ```bash
-chmod +x setup-complete.sh
-./setup-complete.sh
-```
-
-### 📦 Script de Setup Completo (Descarga Directa)
-
-También puedes crear este script rápidamente:
-
-```bash
-# Crear script de setup
-cat > setup-complete.sh << 'EOF'
-#!/bin/bash
-echo "🔧 Configurando Jenkins Laboratory..."
-command -v docker >/dev/null 2>&1 || { echo "❌ Docker requerido"; exit 1; }
-echo "📦 Iniciando Jenkins..."
-docker compose up -d
-sleep 60
-echo "🔍 Verificando Jenkins..."
-until curl -f -s http://localhost:8080/login > /dev/null; do sleep 10; done
-echo "✅ Jenkins listo en http://localhost:8080(admin/admin123)"
-docker compose ps
-EOF
-
-chmod +x setup-complete.sh
-./setup-complete.sh
-```
-
-### 🔧 Troubleshooting Común
-
-**Problema**: Agente no se conecta
-```bash
-# Solución 1: Reiniciar todo
-docker compose down && docker compose up -d
-
-# Solución 2: Usar solo master
-# Editar Jenkinsfile para usar 'agent any' (ya configurado)
-```
-
-**Problema**: Puerto 8080 ocupado
-```bash
-# Verificar qué usa el puerto
+# Verificar qué proceso usa el puerto
 lsof -i :8080
 
 # Cambiar puerto en docker-compose.yml si es necesario
-# ports: ["9080:8080"]
+# ports: ["8081:8080"]
 ```
 
-**Problema**: Permisos de Docker socket
+### Agente no conectado
 ```bash
-# En Linux, agregar usuario al grupo docker
-sudo usermod -aG docker $USER
-# Reiniciar sesión
+# Obtener nuevo secret del agente
+./get-agent-secret.sh
+
+# Reiniciar servicios
+docker compose down
+docker compose up -d
+```
+
+### Tests fallan
+```bash
+# Verificar imagen de la aplicación
+docker images calculator-app
+
+# Reconstruir si es necesario
+make build
 ```
 
 ## 📈 Mejores Prácticas
