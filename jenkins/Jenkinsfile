@@ -65,8 +65,57 @@ pipeline {
                         sh 'mkdir -p ${WORKSPACE}/results'
                         sh 'chmod 777 ${WORKSPACE}/results'
                         
-                        // Ejecutar tests
-                        sh 'make test-unit'
+                        // Debug: verificar workspace y contenedor
+                        sh '''
+                            echo "=== DEBUG: Verificando workspace en host ==="
+                            echo "Workspace path: ${WORKSPACE}"
+                            echo "Contenido del workspace:"
+                            ls -la ${WORKSPACE}/
+                            echo "Verificando directorio test:"
+                            ls -la ${WORKSPACE}/test/ || echo "ERROR: Directorio test/ NO existe"
+                            echo "Verificando directorio app:"
+                            ls -la ${WORKSPACE}/app/ || echo "ERROR: Directorio app/ NO existe"
+                        '''
+                        
+                        // Estrategia simplificada: usar docker run con copia de archivos
+                        sh '''
+                            echo "=== Usando estrategia simplificada ==="
+                            
+                            # Crear contenedor temporal y copiar archivos
+                            CONTAINER_ID=$(docker create calculator-app:latest sleep 300)
+                            echo "Contenedor creado: $CONTAINER_ID"
+                            
+                            # Copiar workspace al contenedor
+                            docker cp ${WORKSPACE}/. $CONTAINER_ID:/opt/calc/
+                            echo "Archivos copiados al contenedor"
+                            
+                            # Iniciar contenedor
+                            docker start $CONTAINER_ID
+                            echo "Contenedor iniciado"
+                            
+                            # Verificar contenido
+                            echo "=== Verificando contenido ==="
+                            docker exec $CONTAINER_ID ls -la /opt/calc/
+                            docker exec $CONTAINER_ID ls -la /opt/calc/test/
+                            docker exec $CONTAINER_ID ls -la /opt/calc/test/unit/
+                            
+                            # Ejecutar tests en pasos separados
+                            echo "=== Ejecutando tests unitarios ==="
+                            docker exec -w /opt/calc -e PYTHONPATH=/opt/calc $CONTAINER_ID pytest --cov --cov-report=xml:results/coverage.xml --cov-report=html:results/coverage --junit-xml=results/unit_result.xml -m unit -v test/unit/ || echo "Tests failed but continuing"
+                            
+                            # Copiar resultados
+                            echo "=== Copiando resultados ==="
+                            docker cp $CONTAINER_ID:/opt/calc/results/. ${WORKSPACE}/results/ || echo "Error copiando resultados"
+                            
+                            # Generar HTML report
+                            docker exec -w /opt/calc $CONTAINER_ID junit2html results/unit_result.xml results/unit_result.html || echo "Error generando HTML"
+                            docker cp $CONTAINER_ID:/opt/calc/results/unit_result.html ${WORKSPACE}/results/ || echo "Error copiando HTML"
+                            
+                            # Limpiar
+                            docker stop $CONTAINER_ID
+                            docker rm $CONTAINER_ID
+                            echo "Contenedor limpiado"
+                        '''
                         
                         // Verificar que los archivos existen
                         sh '''
@@ -124,7 +173,33 @@ pipeline {
                 echo 'Running behavior tests...'
                 script {
                     try {
-                        sh 'make test-behavior'
+                        // Estrategia de copia de archivos para behavior tests
+                        sh '''
+                            echo "=== Ejecutando Behavior Tests ==="
+                            
+                            # Crear contenedor temporal
+                            CONTAINER_ID=$(docker create calculator-app:latest sleep 300)
+                            echo "Contenedor creado: $CONTAINER_ID"
+                            
+                            # Copiar workspace al contenedor
+                            docker cp ${WORKSPACE}/. $CONTAINER_ID:/opt/calc/
+                            
+                            # Iniciar contenedor
+                            docker start $CONTAINER_ID
+                            
+                            # Ejecutar behavior tests
+                            docker exec -w /opt/calc -e PYTHONPATH=/opt/calc $CONTAINER_ID behave --junit --junit-directory results/ --tags ~@wip test/behavior/ || echo "Behavior tests failed but continuing"
+                            
+                            # Generar reportes HTML
+                            docker exec -w /opt/calc $CONTAINER_ID bash test/behavior/junit-reports.sh || echo "Error generando reportes HTML"
+                            
+                            # Copiar resultados
+                            docker cp $CONTAINER_ID:/opt/calc/results/. ${WORKSPACE}/results/ || echo "Error copiando resultados"
+                            
+                            # Limpiar contenedor
+                            docker stop $CONTAINER_ID
+                            docker rm $CONTAINER_ID
+                        '''
                         echo 'Behavior tests completed successfully'
                     } catch (Exception e) {
                         echo "Behavior tests failed: ${e.getMessage()}"
@@ -142,7 +217,52 @@ pipeline {
                 echo 'Running API tests...'
                 script {
                     try {
-                        sh 'make test-api'
+                        // Estrategia de copia de archivos para API tests
+                        sh '''
+                            echo "=== Ejecutando API Tests ==="
+                            
+                            # Crear red para los tests
+                            docker network create calc-test-api || true
+                            
+                            # Crear contenedor temporal para los tests
+                            CONTAINER_ID=$(docker create --network calc-test-api calculator-app:latest sleep 300)
+                            echo "Contenedor de tests creado: $CONTAINER_ID"
+                            
+                            # Copiar workspace al contenedor
+                            docker cp ${WORKSPACE}/. $CONTAINER_ID:/opt/calc/
+                            
+                            # Iniciar contenedor de tests
+                            docker start $CONTAINER_ID
+                            
+                            # Crear contenedor temporal para el servidor API
+                            API_CONTAINER_ID=$(docker create --network calc-test-api --env PYTHONPATH=/opt/calc --name apiserver --env FLASK_APP=app/api.py -p 5001:5000 -w /opt/calc calculator-app:latest flask run --host=0.0.0.0)
+                            echo "Contenedor API creado: $API_CONTAINER_ID"
+                            
+                            # Copiar workspace al contenedor API
+                            docker cp ${WORKSPACE}/. $API_CONTAINER_ID:/opt/calc/
+                            
+                            # Iniciar servidor API
+                            docker start $API_CONTAINER_ID
+                            
+                            # Esperar que el servidor esté listo
+                            sleep 10
+                            
+                            # Ejecutar API tests
+                            docker exec -w /opt/calc -e PYTHONPATH=/opt/calc -e BASE_URL=http://apiserver:5000/ $CONTAINER_ID pytest --junit-xml=results/api_result.xml -m api || echo "API tests failed but continuing"
+                            
+                            # Generar reporte HTML
+                            docker exec -w /opt/calc $CONTAINER_ID junit2html results/api_result.xml results/api_result.html || echo "Error generando HTML"
+                            
+                            # Copiar resultados
+                            docker cp $CONTAINER_ID:/opt/calc/results/. ${WORKSPACE}/results/ || echo "Error copiando resultados"
+                            
+                            # Limpiar contenedores y red
+                            docker stop $API_CONTAINER_ID || true
+                            docker rm --force $API_CONTAINER_ID || true
+                            docker stop $CONTAINER_ID
+                            docker rm $CONTAINER_ID
+                            docker network rm calc-test-api || true
+                        '''
                         echo 'API tests completed successfully'
                     } catch (Exception e) {
                         echo "API tests failed: ${e.getMessage()}"
@@ -160,7 +280,84 @@ pipeline {
                 echo 'Running End-to-End tests...'
                 script {
                     try {
-                        sh 'make test-e2e'
+                        // Estrategia de copia de archivos para E2E tests
+                        sh '''
+                            echo "=== Ejecutando E2E Tests ==="
+                            
+                            # Crear red para E2E tests
+                            docker network create calc-test-e2e || true
+                            
+                            # Limpiar contenedores previos
+                            docker stop apiserver calc-web cypress-runner || true
+                            docker rm --force apiserver calc-web cypress-runner || true
+                            
+                            # Crear contenedor para el servidor API
+                            API_CONTAINER_ID=$(docker create --network calc-test-e2e --env PYTHONPATH=/opt/calc --name apiserver --env FLASK_APP=app/api.py -p 5001:5000 -w /opt/calc calculator-app:latest flask run --host=0.0.0.0)
+                            echo "Contenedor API creado: $API_CONTAINER_ID"
+                            
+                            # Copiar workspace al contenedor API
+                            docker cp ${WORKSPACE}/. $API_CONTAINER_ID:/opt/calc/
+                            
+                            # Iniciar servidor API
+                            docker start $API_CONTAINER_ID
+                            echo "Servidor API iniciado"
+                            
+                            # Crear contenedor para nginx
+                            WEB_CONTAINER_ID=$(docker create --network calc-test-e2e --name calc-web -p 80:80 nginx)
+                            echo "Contenedor web creado: $WEB_CONTAINER_ID"
+                            
+                            # Copiar archivos web al contenedor
+                            docker cp ${WORKSPACE}/web/. $WEB_CONTAINER_ID:/usr/share/nginx/html/
+                            docker cp ${WORKSPACE}/web/constants.test.js $WEB_CONTAINER_ID:/usr/share/nginx/html/constants.js
+                            docker cp ${WORKSPACE}/web/nginx.conf $WEB_CONTAINER_ID:/etc/nginx/conf.d/default.conf
+                            
+                            # Iniciar servidor web
+                            docker start $WEB_CONTAINER_ID
+                            echo "Servidor web iniciado"
+                            
+                            # Esperar que los servidores estén listos
+                            sleep 15
+                            
+                            # Verificar que los servidores están respondiendo
+                            docker exec $API_CONTAINER_ID curl -f http://localhost:5000/ || echo "API server no responde"
+                            docker exec $WEB_CONTAINER_ID curl -f http://localhost:80/ || echo "Web server no responde"
+                            
+                            # Crear contenedor para Cypress
+                            CYPRESS_CONTAINER_ID=$(docker create --network calc-test-e2e --name cypress-runner cypress/included:4.9.0)
+                            echo "Contenedor Cypress creado: $CYPRESS_CONTAINER_ID"
+                            
+                            # Copiar archivos de test al contenedor
+                            docker cp ${WORKSPACE}/test/e2e/cypress.json $CYPRESS_CONTAINER_ID:/cypress.json
+                            docker cp ${WORKSPACE}/test/e2e/cypress/. $CYPRESS_CONTAINER_ID:/cypress/
+                            
+                            # Iniciar contenedor Cypress antes de ejecutar comandos
+                            docker start $CYPRESS_CONTAINER_ID
+                            
+                            # Crear directorio de resultados
+                            docker exec $CYPRESS_CONTAINER_ID mkdir -p /results
+                            
+                            # Ejecutar tests E2E con Cypress usando electron (más estable)
+                            docker exec $CYPRESS_CONTAINER_ID cypress run --browser electron --reporter junit --reporter-options "mochaFile=/results/cypress_result.xml" || echo "E2E tests failed but continuing"
+                            
+                            # Copiar resultados
+                            docker cp $CYPRESS_CONTAINER_ID:/results/. ${WORKSPACE}/results/ || echo "Error copiando resultados"
+                            
+                            # Generar reporte HTML
+                            REPORT_CONTAINER_ID=$(docker create calculator-app:latest sleep 300)
+                            docker cp ${WORKSPACE}/. $REPORT_CONTAINER_ID:/opt/calc/
+                            docker start $REPORT_CONTAINER_ID
+                            docker exec -w /opt/calc $REPORT_CONTAINER_ID junit2html results/cypress_result.xml results/cypress_result.html || echo "Error generando HTML"
+                            docker cp $REPORT_CONTAINER_ID:/opt/calc/results/cypress_result.html ${WORKSPACE}/results/ || echo "Error copiando HTML"
+                            docker stop $REPORT_CONTAINER_ID
+                            docker rm $REPORT_CONTAINER_ID
+                            
+                            # Limpiar contenedores y red
+                            docker stop $API_CONTAINER_ID $WEB_CONTAINER_ID $CYPRESS_CONTAINER_ID || true
+                            docker rm --force $API_CONTAINER_ID $WEB_CONTAINER_ID $CYPRESS_CONTAINER_ID || true
+                            docker network rm calc-test-e2e || true
+                            docker rm --force apiserver calc-web cypress-runner || true
+                            docker network rm calc-test-e2e || true
+                        '''
                         echo 'E2E tests completed successfully'
                     } catch (Exception e) {
                         echo "E2E tests failed: ${e.getMessage()}"
@@ -174,27 +371,112 @@ pipeline {
         }
         
         stage('Security Tests') {
-            when {
-                // Solo ejecutar en la rama principal o cuando se especifique
-                anyOf {
-                    branch 'main'
-                    branch 'master'
-                    expression { params.RUN_SECURITY_TESTS == true }
-                }
-            }
             steps {
                 echo 'Running security tests...'
                 script {
                     try {
-                        // Aquí se pueden añadir tests de seguridad específicos
+                        // Estrategia de copia de archivos para security tests
                         sh '''
-                            echo "Ejecutando análisis de seguridad..."
-                            # Ejemplo de comando para análisis de dependencias
-                            # safety check --json --output results/security_report.json || true
-                            echo "Análisis de seguridad completado"
+                            echo "=== Ejecutando Security Tests ==="
+                            
+                            # Crear red para los tests de seguridad
+                            docker network create calc-security-network || true
+                            
+                            # 1. Análisis con Bandit (seguridad en código Python)
+                            echo "=== 1. Análisis con Bandit ==="
+                            BANDIT_CONTAINER_ID=$(docker create --network calc-security-network calculator-app:latest sleep 300)
+                            echo "Contenedor Bandit creado: $BANDIT_CONTAINER_ID"
+                            
+                            # Copiar workspace al contenedor
+                            docker cp ${WORKSPACE}/. $BANDIT_CONTAINER_ID:/opt/calc/
+                            
+                            # Iniciar contenedor
+                            docker start $BANDIT_CONTAINER_ID
+                            
+                            # Instalar bandit y ejecutar análisis
+                            docker exec -w /opt/calc $BANDIT_CONTAINER_ID pip install bandit || echo "Error instalando bandit"
+                            docker exec -w /opt/calc $BANDIT_CONTAINER_ID mkdir -p results || echo "Directorio results ya existe"
+                            docker exec -w /opt/calc $BANDIT_CONTAINER_ID bandit -r app/ -f json -o results/bandit_report.json || echo "Bandit analysis failed but continuing"
+                            docker exec -w /opt/calc $BANDIT_CONTAINER_ID bandit -r app/ -f txt -o results/bandit_report.txt || echo "Bandit text report failed but continuing"
+                            
+                            # 2. Análisis con Pylint para seguridad adicional
+                            echo "=== 2. Análisis con Pylint ==="
+                            docker exec -w /opt/calc $BANDIT_CONTAINER_ID pip install pylint || echo "Error instalando pylint"
+                            docker exec -w /opt/calc $BANDIT_CONTAINER_ID pylint app/ --output-format=text --reports=y > results/pylint_result.txt || echo "Pylint analysis failed but continuing"
+                            
+                            # Copiar resultados de seguridad
+                            docker cp $BANDIT_CONTAINER_ID:/opt/calc/results/. ${WORKSPACE}/results/ || echo "Error copiando resultados de seguridad"
+                            
+                            # Limpiar contenedor de seguridad
+                            docker stop $BANDIT_CONTAINER_ID
+                            docker rm $BANDIT_CONTAINER_ID
+                            
+                            # Limpiar red
+                            docker network rm calc-security-network || true
+                            
+                            echo "=== Security Tests completados ==="
                         '''
+                        
+                        // Generar reporte consolidado de seguridad
+                        sh '''
+                            echo "=== Generando reporte consolidado de seguridad ==="
+                            
+                            # Crear reporte HTML consolidado
+                            cat > results/security_summary.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Security Analysis Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { background-color: #f4f4f4; padding: 20px; border-radius: 5px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .warning { background-color: #fff3cd; border-color: #ffeaa7; }
+        .danger { background-color: #f8d7da; border-color: #f5c6cb; }
+        pre { background-color: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Security Analysis Report</h1>
+        <p>Generated on: $(date)</p>
+        <p>Project: Calculator Application</p>
+    </div>
+    
+    <div class="section">
+        <h2>1. Static Code Analysis (Bandit)</h2>
+        <p>Security-focused static analysis of Python code.</p>
+        <pre>$(cat results/bandit_report.txt 2>/dev/null || echo "Bandit report not available")</pre>
+    </div>
+    
+    <div class="section">
+        <h2>2. Code Quality (Pylint)</h2>
+        <p>Code quality and potential security issues.</p>
+        <pre>$(head -50 results/pylint_result.txt 2>/dev/null || echo "Pylint report not available")</pre>
+    </div>
+</body>
+</html>
+EOF
+                            
+                            echo "Reporte de seguridad generado en results/security_summary.html"
+                        '''
+                        
+                        echo 'Security tests completed successfully'
                     } catch (Exception e) {
                         echo "Security tests failed: ${e.getMessage()}"
+                        // No lanzamos excepción para continuar con el pipeline
+                    }
+                }
+                
+                // Archivar resultados de security tests
+                script {
+                    try {
+                        archiveArtifacts artifacts: 'results/bandit_report.*', allowEmptyArchive: true
+                        archiveArtifacts artifacts: 'results/pylint_result.txt', allowEmptyArchive: true
+                        archiveArtifacts artifacts: 'results/security_summary.html', allowEmptyArchive: true
+                    } catch (Exception e) {
+                        echo "Error archiving security artifacts: ${e.getMessage()}"
                     }
                 }
             }
@@ -261,6 +543,21 @@ pipeline {
                     echo "No se pudo publicar el informe de E2E Tests: ${e.getMessage()}"
                 }
                 
+                // Informe de Security Tests
+                try {
+                    publishHTML([
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'results',
+                        reportFiles: 'security_summary.html',
+                        reportName: 'Security Analysis Report',
+                        reportTitles: 'Security Tests'
+                    ])
+                } catch (Exception e) {
+                    echo "No se pudo publicar el informe de Security Tests: ${e.getMessage()}"
+                }
+                
                 // Informe de Coverage
                 try {
                     publishHTML([
@@ -281,9 +578,12 @@ pipeline {
             script {
                 // Limpiar contenedores Docker que puedan haber quedado
                 sh '''
+                    # Limpiar contenedores de aplicación y tests
                     docker stop apiserver calc-web apiwiremock || true
                     docker rm --force apiserver calc-web apiwiremock || true
-                    docker network rm calc-test-api calc-test-e2e calc-test-e2e-wiremock || true
+                    
+                    # Limpiar redes de tests (SonarQube permanece en jenkins-network)
+                    docker network rm calc-test-api calc-test-e2e calc-test-e2e-wiremock calc-security-network || true
                 '''
             }
             

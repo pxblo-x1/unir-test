@@ -16,9 +16,9 @@ test-unit:
 	mkdir -p results
 	chmod -R 777 results || true
 	
-	docker run --rm --volume ${PWD}/results:/opt/calc/results:z --env PYTHONPATH=/opt/calc -w /opt/calc calculator-app:latest sh -c "pytest --cov --cov-report=xml:results/coverage.xml --cov-report=html:results/coverage --junit-xml=results/unit_result.xml -m unit && chmod -R 777 /opt/calc/results" || true
+	docker run --rm --volume ${PWD}:/opt/calc:z --env PYTHONPATH=/opt/calc -w /opt/calc calculator-app:latest sh -c "pytest --cov --cov-report=xml:results/coverage.xml --cov-report=html:results/coverage --junit-xml=results/unit_result.xml -m unit && chmod -R 777 /opt/calc/results" || true
 	
-	docker run --rm --volume ${PWD}/results:/opt/calc/results:Z --env PYTHONPATH=/opt/calc -w /opt/calc calculator-app:latest sh -c "junit2html results/unit_result.xml results/unit_result.html && chmod -R 777 /opt/calc/results"
+	docker run --rm --volume ${PWD}:/opt/calc:Z --env PYTHONPATH=/opt/calc -w /opt/calc calculator-app:latest sh -c "junit2html results/unit_result.xml results/unit_result.html && chmod -R 777 /opt/calc/results"
 
 
 test-behavior:
